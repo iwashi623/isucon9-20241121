@@ -170,6 +170,8 @@ type Category struct {
 	ParentCategoryName string `json:"parent_category_name,omitempty" db:"-"`
 }
 
+var categories map[int]Category
+
 type reqInitialize struct {
 	PaymentServiceURL  string `json:"payment_service_url"`
 	ShipmentServiceURL string `json:"shipment_service_url"`
@@ -407,10 +409,32 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 	return userSimple, err
 }
 
-func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
-	err = sqlx.Get(q, &category, "SELECT * FROM `categories` WHERE `id` = ?", categoryID)
+func getUsersSimpleByID(q sqlx.Queryer, userIDs []int64) (userSimple map[int64]UserSimple, err error) {
+	result := []User{}
+	err = sqlx.Select(q, &result, "SELECT * FROM `users` WHERE `id` IN (?)", userIDs)
+	if err != nil {
+		return userSimple, err
+	}
+	userSimple = make(map[int64]UserSimple)
+	for _, user := range result {
+		userSimple[user.ID] = UserSimple{
+			ID:           user.ID,
+			AccountName:  user.AccountName,
+			NumSellItems: user.NumSellItems,
+		}
+	}
+
+	return userSimple, err
+}
+
+func getCategoryByID(categoryID int) (category Category, err error) {
+	category, ok := categories[categoryID]
+	if !ok {
+		return category, sql.ErrNoRows
+	}
+
 	if category.ParentID != 0 {
-		parentCategory, err := getCategoryByID(q, category.ParentID)
+		parentCategory, err := getCategoryByID(category.ParentID)
 		if err != nil {
 			return category, err
 		}
@@ -498,6 +522,18 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		Language: "Go",
 	}
 
+	cs := []Category{}
+	err = dbx.Select(&cs, "SELECT * FROM `categories`")
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	categories = make(map[int]Category)
+	for _, c := range cs {
+		categories[c.ID] = c
+	}
+
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(res)
 }
@@ -558,13 +594,24 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	itemSimples := []ItemSimple{}
+	sellerIDs := []int64{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
-		if err != nil {
+		sellerIDs = append(sellerIDs, item.SellerID)
+	}
+	sellerSimples, err := getUsersSimpleByID(dbx, sellerIDs)
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	for _, item := range items {
+		seller, ok := sellerSimples[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
-		category, err := getCategoryByID(dbx, item.CategoryID)
+
+		category, err := getCategoryByID(item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
 			return
@@ -606,7 +653,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rootCategory, err := getCategoryByID(dbx, rootCategoryID)
+	rootCategory, err := getCategoryByID(rootCategoryID)
 	if err != nil || rootCategory.ParentID != 0 {
 		outputErrorMsg(w, http.StatusNotFound, "category not found")
 		return
@@ -686,13 +733,23 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	itemSimples := []ItemSimple{}
+	sellerIDs := []int64{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
-		if err != nil {
+		sellerIDs = append(sellerIDs, item.SellerID)
+	}
+	sellerSimples, err := getUsersSimpleByID(dbx, sellerIDs)
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	for _, item := range items {
+		seller, ok := sellerSimples[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
-		category, err := getCategoryByID(dbx, item.CategoryID)
+
+		category, err := getCategoryByID(item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
 			return
@@ -802,7 +859,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		category, err := getCategoryByID(dbx, item.CategoryID)
+		category, err := getCategoryByID(item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
 			return
@@ -913,14 +970,37 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	itemDetails := []ItemDetail{}
+	sellerIDs := []int64{}
+	buyerIDs := []int64{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(tx, item.SellerID)
-		if err != nil {
+		sellerIDs = append(sellerIDs, item.SellerID)
+		if item.BuyerID != 0 {
+			buyerIDs = append(buyerIDs, item.BuyerID)
+		}
+	}
+	sellerSimples, err := getUsersSimpleByID(tx, sellerIDs)
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		tx.Rollback()
+		return
+	}
+
+	buyerSimples, err := getUsersSimpleByID(tx, buyerIDs)
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		tx.Rollback()
+		return
+	}
+
+	for _, item := range items {
+		seller, ok := sellerSimples[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			tx.Rollback()
 			return
 		}
-		category, err := getCategoryByID(tx, item.CategoryID)
+
+		category, err := getCategoryByID(item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
 			tx.Rollback()
@@ -947,8 +1027,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			buyer, err := getUserSimpleByID(tx, item.BuyerID)
-			if err != nil {
+			buyer, ok := buyerSimples[item.BuyerID]
+			if !ok {
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 				tx.Rollback()
 				return
@@ -1042,7 +1122,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	category, err := getCategoryByID(dbx, item.CategoryID)
+	category, err := getCategoryByID(item.CategoryID)
 	if err != nil {
 		outputErrorMsg(w, http.StatusNotFound, "category not found")
 		return
@@ -1330,7 +1410,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	category, err := getCategoryByID(tx, targetItem.CategoryID)
+	category, err := getCategoryByID(targetItem.CategoryID)
 	if err != nil {
 		log.Print(err)
 
@@ -1928,7 +2008,7 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	category, err := getCategoryByID(dbx, categoryID)
+	category, err := getCategoryByID(categoryID)
 	if err != nil || category.ParentID == 0 {
 		log.Print(categoryID, category)
 		outputErrorMsg(w, http.StatusBadRequest, "Incorrect category ID")
