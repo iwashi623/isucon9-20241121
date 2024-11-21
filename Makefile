@@ -4,7 +4,7 @@ service = isucari.golang.service
 .PHONY: bn
 bn:
 	make re
-	../bin/benchmarker -target-url http://localhost:80
+	cd .. && ./bin/benchmarker -target-url http://localhost:80
 
 # アプリ､nginx､mysqlの再起動
 .PHONY: re
