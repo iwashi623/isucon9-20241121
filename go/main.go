@@ -413,6 +413,7 @@ func getUsersSimpleByID(q sqlx.Queryer, userIDs []int64) (userSimple map[int64]U
 	result := []User{}
 	err = sqlx.Select(q, &result, "SELECT * FROM `users` WHERE `id` IN (?)", userIDs)
 	if err != nil {
+		log.Print(err)
 		return userSimple, err
 	}
 	userSimple = make(map[int64]UserSimple)
