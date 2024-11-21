@@ -4,7 +4,7 @@ service = isucari.golang.service
 .PHONY: bn
 bn:
 	make re
-	../bin/benchmarker
+	../bin/benchmarker -target-url http://localhost:80
 
 # アプリ､nginx､mysqlの再起動
 .PHONY: re
@@ -57,7 +57,7 @@ mrestart:
 # アプリのログを見る
 .PHONY: nalp
 nalp:
-	sudo cat /var/log/nginx/access.log | alp ltsv -m "/api/player/competition/[a-zA-Z0-9]+/ranking, /js/app.[a-zA-Z0-9]+.js, /api/player/player/[a-zA-Z0-9]+, /api/organizer/competition/[a-zA-Z0-9]+/score, /api/organizer/player/[a-zA-Z0-9]+/disqualified, /api/organizer/competition/[a-zA-Z0-9]+/finish" --sort=sum --reverse
+	sudo cat /var/log/nginx/access.log | alp ltsv -m "/items/[0-9]+.json, /upload/[a-zA-Z0-9]+.jpg, /transactions/[0-9]+.png, /users/[0-9]+.json, /new_items/[0-9]+.json" --sort=sum --reverse
 
 # mysqlのslowlogを見る
 .PHONY: pt
