@@ -72,3 +72,9 @@ CREATE TABLE `categories` (
   `parent_id` int unsigned NOT NULL,
   `category_name` varchar(191) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4;
+
+CREATE INDEX items_created_at_IDX USING BTREE ON isucari.items (created_at);
+CREATE INDEX items_seller_id_created_at_IDX USING BTREE ON isucari.items (seller_id,created_at);
+CREATE INDEX items_buyer_id_created_at_IDX USING BTREE ON isucari.items (buyer_id,created_at);
+CREATE INDEX items_category_id_created_at_IDX USING BTREE ON isucari.items (category_id,created_at);
+
